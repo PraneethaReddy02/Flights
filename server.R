@@ -27,16 +27,25 @@ server <- function(input, output, session) {
 
   sentimentData <- reactive({
     df <- filteredData()
-    df %>%
+    print("Filtered Data:")
+    print(head(df))
+    processed_data <- df %>%
       unnest_tokens(word, text) %>%
-      inner_join(get_sentiments("bing"), by = "word") %>%
-      count(airline, index = 1:nrow(df), sentiment) %>%
-      pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
-      mutate(sentiment = positive - negative)
+      inner_join(get_sentiments("afinn"), by = "word")
+    print("After unnesting and joining:")
+    print(head(processed_data))
+    final_data <- processed_data %>%
+      group_by(airline, index = 1:nrow(df)) %>%
+      summarise(sentiment = sum(value))
+    print("Final Data:")
+    print(head(final_data))
+    return(final_data)
   })
 
   output$sentimentPlot <- renderPlotly({
     sdata <- sentimentData()
+    print("Sentiment Plot Data:")
+    print(head(sdata))
     plot_ly(sdata, x = ~index, y = ~sentiment, type = "scatter", mode = "lines") %>%
       layout(title = "Sentiment Score Over Time", xaxis = list(title = "Tweet Index"), yaxis = list(title = "Sentiment Score"))
   })
@@ -53,7 +62,9 @@ server <- function(input, output, session) {
   output$airlineSentimentPlot <- renderPlotly({
     sdata <- sentimentData() %>%
       group_by(airline) %>%
-      summarise(avg_sentiment = mean(sentiment))
+      summarise(avg_sentiment = mean(sentiment, na.rm = TRUE)) #Added na.rm = TRUE
+    print("Airline Sentiment Plot Data:")
+    print(head(sdata))
     plot_ly(sdata, x = ~airline, y = ~avg_sentiment, type = "bar") %>%
       layout(title = "Average Sentiment by Airline", xaxis = list(title = "Airline"), yaxis = list(title = "Average Sentiment"))
   })
