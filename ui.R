@@ -1,24 +1,47 @@
-# ui.R
 library(shiny)
-library(plotly)
-library(DT)
+library(shinydashboard)
 
-ui <- fluidPage(
-  titlePanel("Airline Tweet Sentiment Analysis"),
-
-  sidebarLayout(
-    sidebarPanel(
-      fileInput("file", "Upload CSV File", accept = ".csv"),
-      selectInput("airlineFilter", "Filter by Airline", choices = c("All")),
-      sliderInput("numWords", "Number of Top Words", min = 5, max = 50, value = 20)
-    ),
-
-    mainPanel(
-      tabsetPanel(
-        tabPanel("Sentiment Score Distribution", plotlyOutput("sentimentPlot")),
-        tabPanel("Top Words", plotOutput("wordcloud")),
-        tabPanel("Sentiment by Airline", plotlyOutput("airlineSentimentPlot")),
-        tabPanel("Raw Data", dataTableOutput("dataTable"))
+ui <- dashboardPage(
+  dashboardHeader(title = "Airline Sentiment Dashboard"),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Overview", tabName = "overview", icon = icon("dashboard")),
+      menuItem("By Airline", tabName = "airline", icon = icon("plane")),
+      menuItem("Word Clouds", tabName = "wordclouds", icon = icon("cloud")),
+      menuItem("Tweet Explorer", tabName = "explorer", icon = icon("table")),
+      fileInput("file", "Upload Tweets CSV", accept = ".csv")
+    )
+  ),
+  
+  dashboardBody(
+    tabItems(
+      tabItem(tabName = "overview",
+              fluidRow(
+                valueBoxOutput("avg_sentiment"),
+                valueBoxOutput("pct_positive"),
+                valueBoxOutput("pct_negative")
+              ),
+              fluidRow(
+                box(title = "Sentiment Distribution", width = 12, status = "primary", solidHeader = TRUE,
+                    plotOutput("sentiment_hist"))
+              )
+      ),
+      
+      tabItem(tabName = "airline",
+              box(title = "Average Sentiment by Airline", width = 12, status = "primary", solidHeader = TRUE,
+                  plotOutput("airline_sentiment"))
+      ),
+      
+      tabItem(tabName = "wordclouds",
+              fluidRow(
+                box(title = "Positive Tweets Word Cloud", width = 6, plotOutput("pos_cloud")),
+                box(title = "Negative Tweets Word Cloud", width = 6, plotOutput("neg_cloud"))
+              )
+      ),
+      
+      tabItem(tabName = "explorer",
+              box(title = "Tweet Table", width = 12, DT::DTOutput("tweet_table"))
       )
     )
   )
