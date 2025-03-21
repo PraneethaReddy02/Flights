@@ -1,86 +1,64 @@
+# server.R
 library(shiny)
-library(tidyverse)
 library(tidytext)
+library(dplyr)
+library(stringr)
 library(wordcloud)
-library(syuzhet)
+library(ggplot2)
+library(plotly)
 library(DT)
-library(RColorBrewer)
+library(textdata)
 
-server <- function(input, output) {
-  
-  tweets_data <- reactive({
+server <- function(input, output, session) {
+  data <- reactive({
     req(input$file)
-    df <- read.csv(input$file$datapath, stringsAsFactors = FALSE)
-    df$airline <- str_extract(df$tweet_text, "@\\w+")
-    df$clean_text <- tolower(df$tweet_text)
-    df$clean_text <- gsub("[^a-z\\s]", "", df$clean_text)
-    df$sentiment_score <- get_sentiment(df$clean_text, method = "syuzhet")
-    df$sentiment_label <- case_when(
-      df$sentiment_score > 0 ~ "Positive",
-      df$sentiment_score < 0 ~ "Negative",
-      TRUE ~ "Neutral"
-    )
-    df
+    df <- read.csv(input$file$datapath)
+    updateSelectInput(session, "airlineFilter", choices = c("All", unique(df$airline)))
+    return(df)
   })
-  
-  output$avg_sentiment <- renderValueBox({
-    avg <- round(mean(tweets_data()$sentiment_score), 2)
-    valueBox(avg, "Avg Sentiment Score", icon = icon("smile"), color = "light-blue")
+
+  filteredData <- reactive({
+    df <- data()
+    if (input$airlineFilter != "All") {
+      df <- df %>% filter(airline == input$airlineFilter)
+    }
+    return(df)
   })
-  
-  output$pct_positive <- renderValueBox({
-    pct <- round(mean(tweets_data()$sentiment_label == "Positive") * 100, 1)
-    valueBox(paste0(pct, "%"), "Positive Tweets", icon = icon("thumbs-up"), color = "green")
+
+  sentimentData <- reactive({
+    df <- filteredData()
+    df %>%
+      unnest_tokens(word, text) %>%
+      inner_join(get_sentiments("bing"), by = "word") %>%
+      count(airline, index = 1:nrow(df), sentiment) %>%
+      pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+      mutate(sentiment = positive - negative)
   })
-  
-  output$pct_negative <- renderValueBox({
-    pct <- round(mean(tweets_data()$sentiment_label == "Negative") * 100, 1)
-    valueBox(paste0(pct, "%"), "Negative Tweets", icon = icon("thumbs-down"), color = "red")
+
+  output$sentimentPlot <- renderPlotly({
+    sdata <- sentimentData()
+    plot_ly(sdata, x = ~index, y = ~sentiment, type = "scatter", mode = "lines") %>%
+      layout(title = "Sentiment Score Over Time", xaxis = list(title = "Tweet Index"), yaxis = list(title = "Sentiment Score"))
   })
-  
-  output$sentiment_hist <- renderPlot({
-    ggplot(tweets_data(), aes(x = sentiment_score)) +
-      geom_histogram(fill = "steelblue", bins = 30) +
-      labs(title = "Distribution of Sentiment Scores", x = "Score", y = "Tweet Count") +
-      theme_minimal()
+
+  output$wordcloud <- renderPlot({
+    df <- filteredData()
+    df %>%
+      unnest_tokens(word, text) %>%
+      anti_join(stop_words) %>%
+      count(word, sort = TRUE) %>%
+      with(wordcloud(words = word, freq = n, max.words = input$numWords))
   })
-  
-  output$airline_sentiment <- renderPlot({
-    tweets_data() %>%
+
+  output$airlineSentimentPlot <- renderPlotly({
+    sdata <- sentimentData() %>%
       group_by(airline) %>%
-      summarise(avg_sentiment = mean(sentiment_score)) %>%
-      ggplot(aes(x = reorder(airline, avg_sentiment), y = avg_sentiment, fill = avg_sentiment)) +
-      geom_col() +
-      coord_flip() +
-      scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
-      labs(title = "Average Sentiment by Airline", x = "Airline", y = "Avg Sentiment") +
-      theme_minimal()
+      summarise(avg_sentiment = mean(sentiment))
+    plot_ly(sdata, x = ~airline, y = ~avg_sentiment, type = "bar") %>%
+      layout(title = "Average Sentiment by Airline", xaxis = list(title = "Airline"), yaxis = list(title = "Average Sentiment"))
   })
-  
-  output$pos_cloud <- renderPlot({
-    pos_words <- tweets_data() %>%
-      filter(sentiment_label == "Positive") %>%
-      unnest_tokens(word, clean_text) %>%
-      anti_join(get_stopwords()) %>%
-      count(word, sort = TRUE)
-    
-    wordcloud(words = pos_words$word, freq = pos_words$n,
-              min.freq = 5, colors = brewer.pal(8, "Dark2"))
-  })
-  
-  output$neg_cloud <- renderPlot({
-    neg_words <- tweets_data() %>%
-      filter(sentiment_label == "Negative") %>%
-      unnest_tokens(word, clean_text) %>%
-      anti_join(get_stopwords()) %>%
-      count(word, sort = TRUE)
-    
-    wordcloud(words = neg_words$word, freq = neg_words$n,
-              min.freq = 5, colors = brewer.pal(8, "Set1"))
-  })
-  
-  output$tweet_table <- renderDT({
-    tweets_data() %>%
-      select(tweet_id, tweet_text, airline, sentiment_label, sentiment_score)
+
+  output$dataTable <- renderDataTable({
+    datatable(filteredData())
   })
 }
